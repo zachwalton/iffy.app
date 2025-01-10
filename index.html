@@ -336,6 +336,10 @@
   });
 
   window.addEventListener('DOMContentLoaded', () => {
+    // Check if the URL hash is "#methodology"
+    if (window.location.hash === '#methodology') {
+      showMethodologyModal();
+    }
     const params = new URLSearchParams(window.location.search);
     const encodedState = false; // params.get('results');
     if (encodedState) {
@@ -653,6 +657,10 @@
 
 <script>
   function showMethodologyModal() {
+    // Set the URL hash
+    if (window.location.hash !== '#methodology') {
+      history.pushState(null, '', '#methodology');
+    }
     const modal = document.getElementById('methodology-modal');
     const contentDiv = document.getElementById('methodology-content');
 
@@ -678,6 +686,10 @@
   }
 
   function closeMethodologyModal() {
+    // Remove the hash from the URL
+    if (window.location.hash === '#methodology') {
+      history.pushState(null, '', window.location.pathname + window.location.search);
+    }
     const modal = document.getElementById('methodology-modal');
     modal.classList.add('hidden');
   }
