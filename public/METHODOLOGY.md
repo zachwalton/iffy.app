@@ -30,15 +30,15 @@ The tool evaluates each topic across predefined categories:
    - Measures the feasibility of addressing the issue through legislative or regulatory changes.
    - Considers alternative mechanisms (e.g., private sector solutions).
 
-3. **Social Relevance**:
-   - Focuses on cultural and societal dimensions, such as correcting imbalances or addressing inequities.
+3. **Equity**:
+   - Score to balance out topics with low statistical or policy relevance, but significant considerations around equity and marginalization. Weighed low for right-leaning users, neutrally for centrists, and high for left-leaning users.
 
 4. **Personal Relevance** (optional):
    - Centers on the user's subjective experience and personal stakes.
    - When provided, its weight amplifies the total relevance of the issue.
 
 ### Weight Calculation
-Each category receives a weight on a **1-10 scale**. These weights are assigned using the following logic:
+Each category receives a weight on a **0-10 scale**. These weights are assigned using the following logic:
 
 1. **Empirical Data**: Factors such as statistical relevance and proportional population impact are prioritized.
 2. **Relative Significance**: Issues central to public discourse or policy are weighted higher.
@@ -61,6 +61,9 @@ The reasoning behind the weights is powered by OpenAI’s GPT-4o model. AI gener
 
 The AI ensures reasoning aligns with user-specified perspectives, year, and relevance preferences. Facts are further enhanced by verifying real-world sources via external APIs.
 
+A seed is generated for each OpenAI request and temperature is `0`, so for a given input, the results should be highly similar but not identical. This is to allow sharing results based on a given input, though no two users will see exactly the same result.
+
+Eventually a "share" button could be added that shares a link to a stored result, but that is not currently implemented.
 ---
 
 ## 4. **The Role of Inputs in Shaping the Analysis**
@@ -88,15 +91,15 @@ For example (pseudocode):
 ```
 statisticalImpact = 5
 policyImpact = 4
-socialRelevance = 6
+equityImpact = 6
 personalRelevance = 8
 totalAvailableHours = 240 
 
 totalWeight = 5 + 4 + 6 + 8 = 23
-averageWeight = 23/10 = 2.3
+averageWeight = 23/4 = 5.75
 relevanceModifier = 1.8 (based on personal relevance of 1.8)
 
-round((2.3 / 10) * (240 / 5) * 1.8) = 20 total hours
+round((5.75 / 10) * (240 / 5) * 1.8) = 20 total hours
 ```
 
 The maximum hours per year for a given topic is `totalAvailableHours / 5 * relevanceModifier`, so a topic that may not be highly weighted by traditional analysis will get a higher recommendation if it's highly personally meaningful.

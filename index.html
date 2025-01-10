@@ -337,7 +337,7 @@
 
   window.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
-    const encodedState = params.get('results');
+    const encodedState = false; // params.get('results');
     if (encodedState) {
       try {
         const state = decodeAndDecompress(encodedState);

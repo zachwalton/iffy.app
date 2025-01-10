@@ -5,6 +5,7 @@ const axios = require('axios');
 const OpenAI = require('openai');
 const { zodResponseFormat } = require("openai/helpers/zod");
 const { z } = require("zod");
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,6 +26,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Generate a hash based on the input
+function generateHash(input) {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
 const WeightSchema = z.object({
   data: z.array(
     z.object({
@@ -44,7 +50,7 @@ const fetchRealSources = async (fact) => {
         key: process.env.GOOGLE_API_KEY,
         cx: process.env.CUSTOM_SEARCH_ENGINE_ID,
         q: fact,
-        num: 3,
+        num: 2,
       },
     });
 
@@ -62,7 +68,7 @@ const fetchRealSources = async (fact) => {
 };
 
 // Logic-based weight and hours calculation
-const calculateWeightsAndHours = (categories, daysPerYear) => {
+const calculateWeightsAndHours = (bias, categories, daysPerYear) => {
   const totalAvailableHours = daysPerYear * 24; // Total hours in the year
   let totalWeight = 0;
   let relevanceModifier = 1;
@@ -70,6 +76,19 @@ const calculateWeightsAndHours = (categories, daysPerYear) => {
   const enrichedCategories = categories.map((category) => {
     if (category.category == "Personal Relevance") {
       relevanceModifier = 1 + category.weight/10;
+    }
+    if (category.category == "Equity") {
+      switch(bias) {
+        case "right":
+          category.reasoning += ` This score is weighed lower for right-leaning users.`;
+          break;
+        case "left":
+          category.reasoning += ` This score is weighed higher for left-leaning users.`;
+          break;
+        case "neutral":
+          category.reasoning += ` This score is weighed neutrally for centrists.`;
+          break;
+      }
     }
     const weight = category.weight; // Use the existing weight directly
     totalWeight += weight;
@@ -92,6 +111,9 @@ const calculateWeightsAndHours = (categories, daysPerYear) => {
 app.post('/calculate-weight', async (req, res) => {
   const { topic, personalImpact, biasPreference, year, daysPerYear } = req.body;
 
+  // Create a deterministic hash from the input
+  const inputHash = generateHash(`${topic}-${personalImpact}-${biasPreference}-${year}-${daysPerYear}`);
+
   try {
     if (!topic || topic.trim().length === 0) {
       return res.status(400).json({ error: 'Topic input is required.' });
@@ -112,26 +134,27 @@ app.post('/calculate-weight', async (req, res) => {
     const daysContent = `The user is willing to spend ${daysPerYear} days per year (${daysPerYear * 24} full hours) on political reasoning, research, and discussion.`;
 
     const categories = personalImpactContent
-      ? 'Statistical Impact, Social Relevance, Policy Impact Potential, and Personal Relevance'
-      : 'Statistical Impact, Social Relevance, and Policy Impact Potential';
+      ? 'Statistical Impact, Policy Impact Potential, Equity, and Personal Relevance'
+      : 'Statistical Impact, Policy Impact Potential, and Equity';
 
     const completion = await openai.beta.chat.completions.parse({
       model: 'gpt-4o-2024-11-20',
       response_format: zodResponseFormat(WeightSchema, "weight"),
+      temperature: 0,
       messages: [
         {
           role: 'system',
           content:
-            `You are a system that evaluates political topics, as relevant to US citizens or visa holders. Your task is to return structured output for the following categories: ${categories}. Err toward two+ sentences per category, or longer sentences per category:
-            - Weight: Provide a number between 1 and 10 to indicate the importance of the category. The weights should be relative to the preferred perspective, e.g. a Right-preferring user is less likely to heavily weigh topics like UBI and a Left-preferring user is less likely to heavily weigh topics like the 2nd amendment, while a Centrist would be more balanced.
+            `You are a system that evaluates political topics, as relevant to US citizens or visa holders. Generate deterministic responses for identical inputs. Seed: ${inputHash}. Your task is to return structured output for the following categories: ${categories}. Err toward two+ sentences per category, or longer sentences per category:
+            - Weight: Provide a number between 0 and 10 to indicate the importance of the category. The weights should be relative to the preferred perspective, e.g. a Right-preferring user is less likely to heavily weigh topics like UBI and a Left-preferring user is less likely to heavily weigh topics like the 2nd amendment, while a Centrist would be more balanced.
             - Facts: Provide a list of 5 key facts relevant to the category. Ensure facts are specific and non-empty. Facts should include statistics (percentages, per capita numbers, etc.) when available. Facts should also be distinct from each other, since each one will be fed to an individual search query; i.e., a fact on its own should not require additional context for a search engine to understand.
-            - Reasoning: Explain the relevance and significance of the facts to the category. This should be at least a few sentences, terse but not overly so.
+            - Reasoning: Explain the relevance and significance of the facts to the category. This should be at least a few sentences, terse but not overly so. 
             For "Personal Relevance", do not return facts. Output must be in JSON format with keys: "category", "weight", "facts", "reasoning".
 
             Categories (when present) should be assessed as follows:
             - Statistical Impact: Statistical relevance to the majority of Americans
             - Policy Impact Potential: Consider both legislative options but also non-legislative options, e.g. trans women in women's sports could be solved with league rules rather than legislation.
-            - Social Relevance: This score should be based on correcting imbalances, e.g. affirmative action may be weighed higher than protecting girls from trans girls using the bathroom as the former aims to correct imbalances for statistical minorities while the latter is both statistically irrelevant and aims to reduce rights of statistical minorities.
+            - Equity: Whether the topic is important for a marginalized group, defined as a statistical minority. However, the score should be weighted low for right-biased users, neutral for centrists, and higher for left-biased users. The reasoning should describe the methodology of equity calculations rather than using strong language about the importance of equity in political considerations.
 
             The array of categories should be wrapped in an outer object under the key "data".`,
         },
@@ -148,7 +171,7 @@ app.post('/calculate-weight', async (req, res) => {
 
     const response = completion.choices[0].message.parsed;
 
-    const sortOrder = ["Statistical Impact", "Social Relevance", "Policy Impact Potential", "Personal Relevance"];
+    const sortOrder = ["Statistical Impact", "Policy Impact Potential", "Equity", "Personal Relevance"];
 
     // Sort the data
     response.data.sort((a, b) => {
@@ -232,7 +255,7 @@ app.post('/calculate-weight', async (req, res) => {
 
     // Calculate weights and hours
     const { enrichedCategories, totalHours, totalHoursDescription } =
-      calculateWeightsAndHours(enhancedData, daysPerYear);
+      calculateWeightsAndHours(biasPreference, enhancedData, daysPerYear);
 
 
     const combinedSources = Array.from(citationMap.entries()).map(([key, value]) => ({
